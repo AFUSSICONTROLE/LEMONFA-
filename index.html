@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>SENTINELLE AFUSSI PRO V10.9.5</title>
+  
+  <link rel="manifest" href="manifest.json">
+  <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.js"></script>
+  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/@emailjs/browser@3/dist/email.min.js"></script>
+  <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+
+  <style>
+    :root { --neon: #00ff88; --alert: #ff003c; --bg: #000; }
+    body { font-family: 'Segoe UI', sans-serif; background: var(--bg); color: #fff; margin: 0; overflow: hidden; height: 100vh; display: flex; flex-direction: column; justify-content: center; align-items: center; }
+    
+    /* Vision Nocturne Logicielle */
+    video { filter: brightness(1.5) contrast(1.2); object-fit: cover; }
+    #video-hidden { position: fixed; width: 1px; height: 1px; opacity: 0; }
+    
+    #scan-container { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 5000; flex-direction: column; align-items: center; justify-content: center; }
+    #scan-wrapper { position: relative; width: 280px; height: 280px; border: 3px solid #333; border-radius: 40px; overflow: hidden; }
+    #scan-preview { width: 100%; height: 100%; }
+    #scan-overlay-box { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 220px; height: 220px; border: 4px solid var(--alert); border-radius: 30px; transition: 0.3s; }
+
+    #clock { font-size: 4rem; font-weight: bold; color: var(--neon); }
+    #power-btn { margin-top: 30px; width: 150px; height: 150px; border-radius: 50%; background: var(--neon); color: #000; border: none; font-weight: bold; box-shadow: 0 0 30px var(--neon); display: flex; flex-direction: column; align-items: center; justify-content: center; }
+    .status-off { background: var(--alert) !important; color: #fff !important; box-shadow: 0 0 30px var(--alert) !important; }
+    
+    #admin-menu { display: none; position: fixed; bottom: 0; width: 100%; background: rgba(10,10,10,0.95); border-top: 2px solid var(--neon); padding: 20px; grid-template-columns: 1fr 1fr; gap: 10px; z-index: 100; box-sizing: border-box; }
+    .btn-large { background: #111; border: 1px solid var(--neon); color: white; padding: 15px; border-radius: 10px; cursor: pointer; display: flex; flex-direction: column; align-items: center; }
+    
+    #config-modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #000; z-index: 6000; padding: 20px; overflow-y: auto; box-sizing: border-box; }
+    input { width: 100%; padding: 12px; margin: 8px 0; background: #111; border: 1px solid var(--neon); color: white; border-radius: 8px; box-sizing: border-box; }
+    canvas { display: none; }
+  </style>
+</head>
+<body onload="init()">
+
+  <video id="video-hidden" autoplay muted playsinline></video>
+  <canvas id="photo-canvas"></canvas>
+
+  <div id="scan-container">
+    <h2 id="scan-label" style="color: var(--alert);">RECHERCHE VISAGE...</h2>
+    <div id="scan-wrapper"><video id="scan-preview" autoplay muted playsinline></video><div id="scan-overlay-box"></div></div>
+    <button onclick="location.reload()" style="margin-top:20px; background:none; border:1px solid #555; color:white; padding:10px; border-radius:8px;">ANNULER</button>
+  </div>
+
+  <div id="clock">00:00:00</div>
+  <button id="power-btn" onclick="secureAction(toggleSystem)"><span class="material-icons" style="font-size:3rem;">shield</span><span id="power-txt">ARMÉ</span></button>
+
+  <div style="position:fixed; bottom:0; width:100%; height:80px; z-index:15;" ondblclick="secureAction(toggleMenu)"></div>
+
+  <div id="admin-menu">
+    <button class="btn-large" onclick="secureAction(startVisualScan)" style="grid-column: span 2; color:gold;"><span class="material-icons">face</span> SCAN MAÎTRE</button>
+    <button class="btn-large" onclick="secureAction(showConfig)"><span class="material-icons">settings</span> RÉGLAGES</button>
+    <button class="btn-large" onclick="location.reload()"><span class="material-icons">refresh</span> REBOOT</button>
+  </div>
+
+  <div id="config-modal">
+    <h2 style="color: var(--neon);">🛡️ CONFIGURATION SÉCURITÉ</h2>
+    <input type="text" id="in-name" placeholder="Nom du Propriétaire">
+    <input type="password" id="in-pin" placeholder="Code PIN (Saisir pour changer)">
+    <hr>
+    <input type="text" id="in-token" placeholder="Telegram Bot Token">
+    <input type="text" id="in-chat" placeholder="Telegram Chat ID">
+    <hr>
+    <input type="text" id="in-jsid" placeholder="EmailJS Public Key">
+    <input type="text" id="in-sid" placeholder="EmailJS Service ID">
+    <input type="text" id="in-tmpl" placeholder="EmailJS Template ID">
+    
+    <button onclick="saveSettings()" style="width:100%; padding:18px; background:var(--neon); color:#000; margin-top:15px; border:none; border-radius:10px; font-weight:bold;">ENREGISTRER TOUT</button>
+    <button onclick="document.getElementById('config-modal').style.display='none'" style="width:100%; margin-top:10px; color:gray; background:none; border:none;">RETOUR</button>
+  </div>
+
+<script>
+  let ownerDesc = null, isAlerte = false, systemActive = localStorage.getItem('active') !== 'false';
+  const ESP = "http://192.168.4.1";
+
+  function parler(t) {
+    window.speechSynthesis.cancel();
+    const m = new SpeechSynthesisUtterance(t);
+    m.lang = 'fr-FR';
+    window.speechSynthesis.speak(m);
+  }
+
+  async function init() {
+    if(!localStorage.getItem('pin')) localStorage.setItem('pin', "1234");
+    if(!localStorage.getItem('name')) localStorage.setItem('name', "Monsieur Afussi");
+    
+    const MODEL = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model/';
+    await faceapi.nets.tinyFaceDetector.loadFromUri(MODEL);
+    await faceapi.nets.faceRecognitionNet.loadFromUri(MODEL);
+
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+    document.getElementById('video-hidden').srcObject = stream;
+    
+    if(localStorage.getItem('desc')) ownerDesc = new Float32Array(Object.values(JSON.parse(localStorage.getItem('desc'))));
+    setInterval(() => { document.getElementById('clock').innerText = new Date().toLocaleTimeString(); }, 1000);
+    setInterval(mainLoop, 1000);
+    updateUI();
+    parler("Sentinelle AFUSSI en ligne.");
+  }
+
+  async function mainLoop() {
+    if(document.getElementById('scan-container').style.display === 'flex') return;
+    const v = document.getElementById('video-hidden');
+    const det = await faceapi.detectSingleFace(v, new faceapi.TinyFaceDetectorOptions()).withFaceDescriptor();
+    
+    if(det && systemActive && ownerDesc) {
+      const dist = faceapi.euclideanDistance(det.descriptor, ownerDesc);
+      if(!isAlerte && dist > 0.45) triggerAlerte(v);
+      else if(isAlerte && dist < 0.45) stopAlerte();
+    }
+  }
+
+  function triggerAlerte(video) {
+    isAlerte = true;
+    parler("Alerte ! Intrusion détectée ! Cet appareil appartient à " + localStorage.getItem('name'));
+    fetch(ESP + "/alarm").catch(()=>{});
+    
+    // Capture de la photo
+    const canvas = document.getElementById('photo-canvas');
+    canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const photoBlob = canvas.toDataURL('image/jpeg');
+
+    // GPS et Notifications
+    navigator.geolocation.getCurrentPosition((pos) => {
+      const gps = `https://www.google.com/maps?q=${pos.coords.latitude},${pos.coords.longitude}`;
+      sendTelegram(gps); // Photo + GPS sur Telegram
+      sendEmail(gps);    // GPS sur Gmail
+    });
+  }
+
+  function stopAlerte() {
+    isAlerte = false;
+    parler("Bonjour " + localStorage.getItem('name') + ". Sécurité rétablie.");
+    fetch(ESP + "/safe").catch(()=>{});
+  }
+
+  function sendTelegram(gps) {
+    const token = localStorage.getItem('token'), chat = localStorage.getItem('chat');
+    if(!token || !chat) return;
+
+    const msg = `🚨 ALERTE VOL : ${localStorage.getItem('name')}\n📍 GPS : ${gps}`;
+    fetch(`https://api.telegram.org/bot${token}/sendMessage?chat_id=${chat}&text=${encodeURIComponent(msg)}`);
+  }
+
+  function sendEmail(gps) {
+    const sid = localStorage.getItem('sid'), tmpl = localStorage.getItem('tmpl'), jsid = localStorage.getItem('jsid');
+    if(sid && tmpl && jsid) {
+      emailjs.init(jsid);
+      emailjs.send(sid, tmpl, { owner_name: localStorage.getItem('name'), location_link: gps });
+    }
+  }
+
+  async function startVisualScan() {
+    const container = document.getElementById('scan-container');
+    const preview = document.getElementById('scan-preview');
+    container.style.display = 'flex';
+    preview.srcObject = document.getElementById('video-hidden').srcObject;
+    parler("Analyse biométrique. Regardez bien le centre.");
+
+    const itv = setInterval(async () => {
+      const det = await faceapi.detectSingleFace(preview, new faceapi.TinyFaceDetectorOptions()).withFaceDescriptor();
+      if(det) {
+        clearInterval(itv);
+        document.getElementById('scan-overlay-box').style.borderColor = "#00ff88";
+        localStorage.setItem('desc', JSON.stringify(det.descriptor));
+        parler("Propriétaire enregistré.");
+        setTimeout(() => location.reload(), 1500);
+      }
+    }, 600);
+  }
+
+  async function secureAction(cb) {
+    let p = prompt("🔑 CODE PIN :");
+    if(p === localStorage.getItem('pin')) cb(); else alert("CODE INCORRECT.");
+  }
+
+  function toggleSystem() {
+    systemActive = !systemActive; localStorage.setItem('active', systemActive);
+    updateUI();
+    parler(systemActive ? "Sentinelle armée." : "Système off.");
+  }
+
+  function updateUI() {
+    const b = document.getElementById('power-btn');
+    document.getElementById('power-txt').innerText = systemActive ? "ARMÉ" : "OFF";
+    systemActive ? b.classList.remove('status-off') : b.classList.add('status-off');
+  }
+
+  function toggleMenu() {
+    const m = document.getElementById('admin-menu');
+    m.style.display = (m.style.display === 'grid') ? 'none' : 'grid';
+  }
+
+  function showConfig() {
+    document.getElementById('config-modal').style.display = 'block';
+    document.getElementById('in-name').value = localStorage.getItem('name');
+    document.getElementById('in-pin').value = localStorage.getItem('pin');
+    document.getElementById('in-token').value = localStorage.getItem('token') || "";
+    document.getElementById('in-chat').value = localStorage.getItem('chat') || "";
+    document.getElementById('in-jsid').value = localStorage.getItem('jsid') || "";
+    document.getElementById('in-sid').value = localStorage.getItem('sid') || "";
+    document.getElementById('in-tmpl').value = localStorage.getItem('tmpl') || "";
+  }
+
+  function saveSettings() {
+    localStorage.setItem('name', document.getElementById('in-name').value);
+    localStorage.setItem('pin', document.getElementById('in-pin').value);
+    localStorage.setItem('token', document.getElementById('in-token').value);
+    localStorage.setItem('chat', document.getElementById('in-chat').value);
+    localStorage.setItem('jsid', document.getElementById('in-jsid').value);
+    localStorage.setItem('sid', document.getElementById('in-sid').value);
+    localStorage.setItem('tmpl', document.getElementById('in-tmpl').value);
+    alert("Configuration sauvegardée !");
+    location.reload();
+  }
+</script>
+</body>
+</html>
