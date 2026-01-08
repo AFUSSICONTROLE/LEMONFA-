@@ -1,9 +1,0 @@
-{
-  "name": "Afussi Lemonfa Pro",
-  "short_name": "Afussi",
-  "start_url": "index.html",
-  "display": "standalone",
-  "background_color": "#000000",
-  "theme_color": "#fbbf24",
-  "icons": [{ "src": "votre-photo.png", "sizes": "512x512", "type": "image/png" }]
-}
