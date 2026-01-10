@@ -1,0 +1,24 @@
+{
+  "name": "Lemonfa IA - Guide Intelligent",
+  "short_name": "Lemonfa IA",
+  "description": "L'innovation du Génie Lemonfa Afussi pour le guidage intelligent au Bénin.",
+  "start_url": ".",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#ffd700",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "votre-photo.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "votre-photo.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
