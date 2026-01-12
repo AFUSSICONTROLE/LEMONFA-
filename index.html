@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WATT-TWIN Lemonfa - Expert Pro V2</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .device-body { background: #1a1a1a; border: 8px solid #333; border-radius: 40px; box-shadow: inset 0 0 20px #000, 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .lcd-screen { background: #0a110a; border: 4px solid #000; color: #78ff78; font-family: 'Courier New', monospace; text-shadow: 0 0 5px #78ff78; }
+        .borne { width: 32px; height: 32px; border-radius: 50%; border: 3px solid #000; position: relative; transition: 0.3s; }
+        .borne-l1 { background: #ef4444; } .borne-l2 { background: #f59e0b; } .borne-l3 { background: #3b82f6; } .borne-n { background: #111; }
+        .cordon-active::after { content: ""; position: absolute; top: 50%; left: 50%; width: 10px; height: 60px; background: linear-gradient(to bottom, rgba(255,255,255,0.3), transparent); transform: translate(-50%, 0); border-radius: 4px; }
+        .btn-physique { width: 55px; height: 55px; background: #222; border: 3px solid #444; border-radius: 12px; box-shadow: 0 4px 0 #000; transition: 0.1s; display: flex; align-items: center; justify-content: center; font-weight: bold; outline: none; font-size: 10px; }
+        .btn-pressed { transform: translateY(4px); box-shadow: 0 0 0 #000; background: #111; color: #78ff78; border-color: #78ff78; box-shadow: 0 0 15px rgba(120, 255, 120, 0.4); }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .neon-text { text-shadow: 0 0 8px rgba(120, 255, 120, 0.8); }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen flex flex-col items-center justify-center p-2 overflow-hidden">
+
+    <div id="calibModal" class="modal">
+        <div class="bg-zinc-900 p-6 rounded-[2.5rem] border border-zinc-700 w-full max-w-xs text-center">
+            <h2 class="text-blue-500 font-black mb-6 uppercase tracking-widest text-sm">Paramètres Expert</h2>
+            <div class="space-y-4 mb-8">
+                <div>
+                    <label class="text-[10px] text-zinc-500 block mb-1 uppercase">Calibre (A)</label>
+                    <select id="sel-calibre" class="w-full bg-black p-3 rounded-xl border border-zinc-800 text-sm text-white text-center">
+                        <option value="20">20A</option><option value="50">50A</option><option value="100">100A</option>
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-2">
+                    <div>
+                        <label class="text-[10px] text-zinc-500 block mb-1">Ku (Tension)</label>
+                        <input type="number" id="coeff-u" value="1.00" step="0.01" class="w-full bg-black p-3 rounded-xl border border-zinc-800 text-center text-white">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-zinc-500 block mb-1">Ki (Courant)</label>
+                        <input type="number" id="coeff-i" value="1.00" step="0.01" class="w-full bg-black p-3 rounded-xl border border-zinc-800 text-center text-white">
+                    </div>
+                </div>
+            </div>
+            <button onclick="saveSettings()" class="w-full bg-blue-600 py-4 rounded-2xl font-black mb-3">APPLIQUER</button>
+            <button onclick="closeModal()" class="text-zinc-500 text-xs font-bold uppercase">Fermer</button>
+        </div>
+    </div>
+
+    <div class="device-body w-full max-w-sm p-4 relative">
+        <div class="text-center mb-2">
+            <h1 class="text-zinc-500 font-black text-[10px] uppercase tracking-widest">Lemonfa Afussi</h1>
+            <p class="text-[7px] text-blue-500 font-bold italic uppercase">Expert Twin 2026</p>
+        </div>
+
+        <div class="lcd-screen p-3 rounded-lg mb-4 h-80 flex flex-col shadow-inner">
+            <div class="flex justify-between text-[9px] mb-2 font-bold opacity-60">
+                <span>SYSTEM ACTIVE</span>
+                <span id="system-time">00:00:00</span>
+            </div>
+            
+            <div class="space-y-1 mb-2">
+                <div class="flex justify-between items-end border-b border-green-900/20 pb-1">
+                    <span class="text-red-500 font-black text-xs">L1</span>
+                    <span class="text-xs"><span id="v1" class="text-lg neon-text">0</span>V</span>
+                    <span class="text-xs"><span id="a1" class="text-lg">0.0</span>A</span>
+                    <span class="text-xs text-blue-400"><span id="kw1" class="text-lg font-bold">0.00</span>kW</span>
+                </div>
+                <div class="flex justify-between items-end border-b border-green-900/20 pb-1">
+                    <span class="text-orange-500 font-black text-xs">L2</span>
+                    <span class="text-xs"><span id="v2" class="text-lg neon-text">0</span>V</span>
+                    <span class="text-xs"><span id="a2" class="text-lg">0.0</span>A</span>
+                    <span class="text-xs text-blue-400"><span id="kw2" class="text-lg font-bold">0.00</span>kW</span>
+                </div>
+                <div class="flex justify-between items-end border-b border-green-900/20 pb-1">
+                    <span class="text-blue-500 font-black text-xs">L3</span>
+                    <span class="text-xs"><span id="v3" class="text-lg neon-text">0</span>V</span>
+                    <span class="text-xs"><span id="a3" class="text-lg">0.0</span>A</span>
+                    <span class="text-xs text-blue-400"><span id="kw3" class="text-lg font-bold">0.00</span>kW</span>
+                </div>
+            </div>
+
+            <div class="flex justify-between text-[9px] font-bold text-zinc-500 mb-1">
+                <span>TOTAL ENERGY: <span id="val-kwh" class="text-green-500">0.000</span> kWh</span>
+                <span>Ku:<span id="val-ku">1.0</span> Ki:<span id="val-ki">1.0</span></span>
+            </div>
+
+            <div class="flex-grow relative border border-green-900/30 rounded bg-black/40">
+                <canvas id="oscillo"></canvas>
+            </div>
+        </div>
+
+        <div class="flex justify-around mb-6 border-t border-zinc-800 pt-4">
+            <div class="text-center"><div id="j-l1" class="borne borne-l1 mx-auto"></div><p class="text-[8px] mt-1 font-bold text-zinc-600">L1</p></div>
+            <div class="text-center"><div id="j-l2" class="borne borne-l2 mx-auto"></div><p class="text-[8px] mt-1 font-bold text-zinc-600">L2</p></div>
+            <div class="text-center"><div id="j-l3" class="borne borne-l3 mx-auto"></div><p class="text-[8px] mt-1 font-bold text-zinc-600">L3</p></div>
+            <div class="text-center"><div id="j-n" class="borne borne-n mx-auto"></div><p class="text-[8px] mt-1 font-bold text-zinc-600">N</p></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-4 justify-items-center mb-2">
+            <button id="btn-mode" onclick="press('mode')" class="btn-physique">MODE</button>
+            <button id="btn-calib" onclick="press('calib')" class="btn-physique">CALIB</button>
+            <button id="btn-reset" onclick="press('reset')" class="btn-physique text-red-500">RESET</button>
+        </div>
+    </div>
+
+    <script>
+        let db;
+        let chart;
+        const PIN_SÉCURITÉ = "2026";
+        let lastTimestamp = Date.now();
+        let totalKwh = 0;
+
+        window.onload = () => {
+            initChart();
+            // --- LOGIQUE DE CONFIGURATION INITIALE ---
+            let url = localStorage.getItem('fb_url_expert');
+            if(!url) {
+                url = prompt("PREMIÈRE UTILISATION : Entrez l'URL de votre base Firebase (ex: https://monprojet.firebaseio.com)");
+                if(url) localStorage.setItem('fb_url_expert', url);
+            }
+            
+            if(url) {
+                firebase.initializeApp({ databaseURL: url });
+                db = firebase.database();
+                listen();
+            }
+            setInterval(() => { document.getElementById('system-time').innerText = new Date().toLocaleTimeString(); }, 1000);
+        };
+
+        function initChart() {
+            const ctx = document.getElementById('oscillo').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(40).fill(''),
+                    datasets: [
+                        { borderColor: '#ef4444', data: Array(40).fill(0), borderWidth: 1.5, pointRadius: 0, tension: 0.4 },
+                        { borderColor: '#f59e0b', data: Array(40).fill(0), borderWidth: 1.5, pointRadius: 0, tension: 0.4 },
+                        { borderColor: '#3b82f6', data: Array(40).fill(0), borderWidth: 1.5, pointRadius: 0, tension: 0.4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { display: false }, y: { display: false, min: -150, max: 150 } },
+                    animation: { duration: 0 }
+                }
+            });
+        }
+
+        function listen() {
+            db.ref('wattmetre_physique').on('value', (s) => {
+                const d = s.val(); if(!d) return;
+                
+                let now = Date.now();
+                let pTotalW = d.l1.w + d.l2.w + d.l3.w;
+                totalKwh += (pTotalW / 1000) * ((now - lastTimestamp) / 3600000);
+                lastTimestamp = now;
+
+                // MAJ Numérique (Watts convertis en kW pour l'alignement)
+                const updateLine = (id, v, a, w) => {
+                    document.getElementById('v'+id).innerText = v;
+                    document.getElementById('a'+id).innerText = a.toFixed(1);
+                    document.getElementById('kw'+id).innerText = (w/1000).toFixed(2);
+                };
+                updateLine('1', d.l1.v, d.l1.a, d.l1.w);
+                updateLine('2', d.l2.v, d.l2.a, d.l2.w);
+                updateLine('3', d.l3.v, d.l3.a, d.l3.w);
+
+                document.getElementById('val-kwh').innerText = totalKwh.toFixed(3);
+                if(d.config) {
+                    document.getElementById('val-ku').innerText = d.config.ku;
+                    document.getElementById('val-ki').innerText = d.config.ki;
+                }
+
+                // Animation bornes
+                document.getElementById('j-l1').classList.toggle('cordon-active', d.l1.v > 30);
+                document.getElementById('j-l2').classList.toggle('cordon-active', d.l2.v > 30);
+                document.getElementById('j-l3').classList.toggle('cordon-active', d.l3.v > 30);
+
+                // Courbes
+                const time = Date.now() / 150;
+                chart.data.datasets[0].data.push(Math.sin(time) * (d.l1.v / 2));
+                chart.data.datasets[1].data.push(Math.sin(time + 2.09) * (d.l2.v / 2));
+                chart.data.datasets[2].data.push(Math.sin(time + 4.18) * (d.l3.v / 2));
+                chart.data.datasets.forEach(ds => ds.data.shift());
+                chart.update('none');
+            });
+        }
+
+        function press(type) {
+            const btn = document.getElementById('btn-'+type);
+            btn.classList.add('btn-pressed');
+            
+            if(type === 'calib') {
+                if(prompt("CODE PIN SÉCURITÉ :") === PIN_SÉCURITÉ) {
+                    document.getElementById('calibModal').style.display = 'flex';
+                }
+                setTimeout(() => btn.classList.remove('btn-pressed'), 500);
+            } else {
+                db.ref('wattmetre_physique/remote_cmd').set(type);
+                setTimeout(() => {
+                    db.ref('wattmetre_physique/remote_cmd').set('none');
+                    btn.classList.remove('btn-pressed');
+                }, 500);
+            }
+        }
+
+        function saveSettings() {
+            db.ref('wattmetre_physique/config').set({
+                calibre: document.getElementById('sel-calibre').value,
+                ku: document.getElementById('coeff-u').value,
+                ki: document.getElementById('coeff-i').value,
+                updated_at: Date.now()
+            });
+            closeModal();
+        }
+
+        function closeModal() { document.getElementById('calibModal').style.display = 'none'; }
+    </script>
+</body>
+</html>
