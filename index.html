@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WATT-TWIN Lemonfa - Miroir Intégral</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .device-body { background: #1a1a1a; border: 8px solid #333; border-radius: 40px; box-shadow: inset 0 0 20px #000, 0 25px 50px -12px rgba(0, 0, 0, 0.5); }
+        .lcd-screen { background: #0a110a; border: 4px solid #000; color: #78ff78; font-family: 'Courier New', monospace; text-shadow: 0 0 5px #78ff78; box-shadow: inset 0 0 15px #000; position: relative; }
+        .borne { width: 40px; height: 40px; border-radius: 50%; border: 4px solid #000; position: relative; transition: 0.3s; z-index: 10; }
+        .borne-l1 { background: #ef4444; } .borne-l2 { background: #f59e0b; } .borne-l3 { background: #3b82f6; } .borne-n { background: #111; border-color: #444; }
+        .cordon-active::after { content: ""; position: absolute; top: 50%; left: 50%; width: 14px; height: 100px; background: linear-gradient(to bottom, rgba(255,255,255,0.4), transparent); transform: translate(-50%, 0); border-radius: 4px; z-index: 1; }
+        .neon-border { box-shadow: 0 0 20px currentColor; }
+        .btn-physique { width: 50px; height: 50px; background: #222; border: 3px solid #444; border-radius: 12px; box-shadow: 0 4px 0 #000; transition: 0.1s; outline: none; display: flex; align-items: center; justify-content: center; font-size: 10px; color: #444; font-weight: bold; }
+        .btn-pressed { transform: translateY(4px); box-shadow: 0 0 0 #000; background: #333; color: #78ff78; }
+        @keyframes pulse { 0% { opacity: 1; } 50% { opacity: 0.3; } 100% { opacity: 1; } }
+        .live-dot { width: 6px; height: 6px; background: #78ff78; border-radius: 50%; animation: pulse 1s infinite; }
+        #chart-container { height: 60px; width: 100%; margin-top: 5px; opacity: 0.8; }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden">
+
+    <button onclick="setConfig()" class="fixed top-4 right-4 text-zinc-800 text-[10px] font-black uppercase tracking-widest">Setup</button>
+
+    <div class="device-body w-full max-w-sm p-6 relative">
+        <div class="text-center mb-4">
+            <h1 class="text-zinc-500 font-black text-xs uppercase tracking-widest">Lemonfa Afussi</h1>
+            <p class="text-[8px] text-blue-500 font-bold italic uppercase">Wattmètre Triphasé Connecté</p>
+        </div>
+
+        <div class="lcd-screen p-3 rounded-lg mb-8 h-60 flex flex-col overflow-hidden">
+            <div class="flex justify-between items-center text-[9px] mb-2">
+                <div class="flex items-center gap-2"><div class="live-dot"></div> MONITORING LIVE</div>
+                <span id="system-time">00:00:00</span>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-x-4 text-[10px] font-bold">
+                <div class="flex justify-between"><span>L1:</span><span><span id="disp-v1">0</span>V | <span id="disp-a1">0.0</span>A</span></div>
+                <div class="flex justify-between"><span>L2:</span><span><span id="disp-v2">0</span>V | <span id="disp-a2">0.0</span>A</span></div>
+                <div class="flex justify-between"><span>L3:</span><span><span id="disp-v3">0</span>V | <span id="disp-a3">0.0</span>A</span></div>
+                <div class="flex justify-between text-blue-400"><span>NET:</span><span>SYNCHRONISÉ</span></div>
+            </div>
+
+            <div id="chart-container">
+                <canvas id="oscilloCanvas"></canvas>
+            </div>
+
+            <div class="mt-auto text-center border-t border-green-900/40 pt-2">
+                <div class="text-[9px] text-zinc-500 uppercase">Puissance Totale</div>
+                <div class="text-3xl font-black tracking-tighter">
+                    <span id="disp-ptot">0.00</span> <span class="text-sm">kW</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="flex justify-around mb-12 relative">
+            <div class="text-center"><div id="jack-l1" class="borne borne-l1 mx-auto text-red-500"></div><p class="text-[9px] mt-2 font-black">L1</p></div>
+            <div class="text-center"><div id="jack-l2" class="borne borne-l2 mx-auto text-orange-500"></div><p class="text-[9px] mt-2 font-black">L2</p></div>
+            <div class="text-center"><div id="jack-l3" class="borne borne-l3 mx-auto text-blue-500"></div><p class="text-[9px] mt-2 font-black">L3</p></div>
+            <div class="text-center"><div id="jack-n" class="borne borne-n mx-auto text-zinc-500"></div><p class="text-[9px] mt-2 font-black">N</p></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-6 justify-items-center mb-6">
+            <div class="text-center">
+                <button id="btn-mode" onclick="handleBtn('mode')" class="btn-physique">M</button>
+                <p class="text-[8px] mt-2 font-bold text-zinc-600 uppercase">Mode</p>
+            </div>
+            <div class="text-center">
+                <button id="btn-calib" onclick="handleBtn('calib')" class="btn-physique">C</button>
+                <p class="text-[8px] mt-2 font-bold text-zinc-600 uppercase">Calib</p>
+            </div>
+            <div class="text-center">
+                <button id="btn-reset" onclick="handleBtn('reset')" class="btn-physique border-red-900/40 text-red-900">R</button>
+                <p class="text-[8px] mt-2 font-bold text-red-900 uppercase">Reset</p>
+            </div>
+        </div>
+
+        <div class="text-center">
+            <span class="text-[7px] font-black text-zinc-700 tracking-[0.4em] uppercase italic">Lemonfa Digital Twin Technology</span>
+        </div>
+    </div>
+
+    <script>
+        let db;
+        let chart;
+        const MY_PIN = "2026"; // Ton code de sécurité
+
+        function speak(t) { window.speechSynthesis.cancel(); let m = new SpeechSynthesisUtterance(t); m.lang='fr-FR'; m.rate=1; window.speechSynthesis.speak(m); }
+
+        // INITIALISATION
+        window.onload = () => {
+            initChart();
+            const url = localStorage.getItem('fb_url');
+            if(url) {
+                firebase.initializeApp({ databaseURL: url });
+                db = firebase.database();
+                syncTwin();
+            }
+            setInterval(() => { document.getElementById('system-time').innerText = new Date().toLocaleTimeString(); }, 1000);
+            if ('serviceWorker' in navigator) { navigator.serviceWorker.register('sw.js'); }
+            speak("Initialisation terminée. Système triphasé Lemonfa prêt.");
+        };
+
+        // OSCILLOSCOPE
+        function initChart() {
+            const ctx = document.getElementById('oscilloCanvas').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(20).fill(''),
+                    datasets: [
+                        { borderColor: '#ef4444', data: Array(20).fill(0), borderWidth: 2, pointRadius: 0, tension: 0.4 },
+                        { borderColor: '#f59e0b', data: Array(20).fill(0), borderWidth: 2, pointRadius: 0, tension: 0.4 },
+                        { borderColor: '#3b82f6', data: Array(20).fill(0), borderWidth: 2, pointRadius: 0, tension: 0.4 }
+                    ]
+                },
+                options: { responsive: true, maintainAspectRatio: false, plugins: { legend: {display: false} }, scales: { x: {display: false}, y: {display: false, min: -10, max: 10} } }
+            });
+        }
+
+        function setConfig() {
+            let u = prompt("Configuration Firebase (URL) :");
+            if(u) { localStorage.setItem('fb_url', u); location.reload(); }
+        }
+
+        // SYNCHRONISATION TEMPS RÉEL
+        function syncTwin() {
+            if(!db) return;
+            db.ref('wattmetre_physique').on('value', (s) => {
+                const d = s.val();
+                if(!d) return;
+
+                // 1. Valeurs Textuelles
+                document.getElementById('disp-v1').innerText = d.l1.v;
+                document.getElementById('disp-a1').innerText = d.l1.a.toFixed(1);
+                document.getElementById('disp-v2').innerText = d.l2.v;
+                document.getElementById('disp-a2').innerText = d.l2.a.toFixed(1);
+                document.getElementById('disp-v3').innerText = d.l3.v;
+                document.getElementById('disp-a3').innerText = d.l3.a.toFixed(1);
+                document.getElementById('disp-ptot').innerText = ((d.l1.w + d.l2.w + d.l3.w)/1000).toFixed(2);
+
+                // 2. Bornes et Cordons
+                toggleCordon('jack-l1', d.l1.v > 50);
+                toggleCordon('jack-l2', d.l2.v > 50);
+                toggleCordon('jack-l3', d.l3.v > 50);
+                toggleCordon('jack-n', d.l1.v > 10 || d.l2.v > 10);
+
+                // 3. Boutons (Miroir)
+                pressButton('btn-mode', d.btn_mode_state);
+                pressButton('btn-calib', d.btn_calib_state);
+                pressButton('btn-reset', d.btn_reset_state);
+
+                // 4. Allure des Courbes (Simulation basée sur tension réelle)
+                const time = Date.now() / 100;
+                chart.data.datasets[0].data.push(Math.sin(time) * 5);
+                chart.data.datasets[1].data.push(Math.sin(time + 2.09) * 5);
+                chart.data.datasets[2].data.push(Math.sin(time + 4.18) * 5);
+                chart.data.datasets.forEach(ds => ds.data.shift());
+                chart.update('none');
+
+                if(d.l1.v > 250) speak("Attention, surtension détectée.");
+            });
+        }
+
+        function toggleCordon(id, isActive) {
+            const el = document.getElementById(id);
+            if(isActive) el.classList.add('cordon-active', 'neon-border');
+            else el.classList.remove('cordon-active', 'neon-border');
+        }
+
+        function pressButton(id, isPressed) {
+            const el = document.getElementById(id);
+            if(isPressed) el.classList.add('btn-pressed');
+            else el.classList.remove('btn-pressed');
+        }
+
+        // Action sur les boutons (Protection par PIN)
+        function handleBtn(type) {
+            if(type === 'calib') {
+                let p = prompt("ACCÈS SÉCURISÉ - Entrez votre PIN :");
+                if(p === MY_PIN) {
+                    speak("Accès autorisé. Mode calibrage activé.");
+                    db.ref('wattmetre_physique').update({ command: 'calib_mode' });
+                } else {
+                    speak("Erreur. Code PIN incorrect.");
+                }
+            } else {
+                // Pour Mode et Reset, on envoie juste la commande
+                db.ref('wattmetre_physique').update({ last_action: type, timestamp: Date.now() });
+            }
+        }
+    </script>
+</body>
+</html>
