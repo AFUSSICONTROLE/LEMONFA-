@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WATT-TWIN Lemonfa - Expert Pro V2</title>
+    <link rel="manifest" href="manifest.json">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.1.3/firebase-database-compat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        .device-body { background: #1a1a1a; border: 8px solid #333; border-radius: 40px; box-shadow: inset 0 0 20px #000, 0 25px 50px -12px rgba(0,0,0,0.5); }
+        .lcd-screen { background: #0a110a; border: 4px solid #000; color: #78ff78; font-family: 'Courier New', monospace; text-shadow: 0 0 5px #78ff78; }
+        .borne { width: 40px; height: 40px; border-radius: 50%; border: 4px solid #000; position: relative; transition: 0.3s; }
+        .borne-l1 { background: #ef4444; } .borne-l2 { background: #f59e0b; } .borne-l3 { background: #3b82f6; } .borne-n { background: #111; }
+        .cordon-active::after { content: ""; position: absolute; top: 50%; left: 50%; width: 14px; height: 90px; background: linear-gradient(to bottom, rgba(255,255,255,0.3), transparent); transform: translate(-50%, 0); border-radius: 4px; box-shadow: 0 0 10px rgba(255,255,255,0.1); }
+        .btn-physique { width: 55px; height: 55px; background: #222; border: 3px solid #444; border-radius: 12px; box-shadow: 0 4px 0 #000; transition: 0.1s; display: flex; align-items: center; justify-content: center; font-weight: bold; outline: none; }
+        .btn-pressed { transform: translateY(4px); box-shadow: 0 0 0 #000; background: #333; color: #78ff78; border-color: #78ff78; }
+        .modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 100; align-items: center; justify-content: center; backdrop-filter: blur(5px); }
+        .neon-text { text-shadow: 0 0 10px rgba(120, 255, 120, 0.5); }
+    </style>
+</head>
+<body class="bg-zinc-950 text-white min-h-screen flex flex-col items-center justify-center p-4 overflow-hidden">
+
+    <div id="calibModal" class="modal">
+        <div class="bg-zinc-900 p-8 rounded-[2.5rem] border border-zinc-700 w-full max-w-xs text-center">
+            <h2 class="text-blue-500 font-black mb-6 uppercase tracking-widest text-sm">Réglage Coefficients</h2>
+            <div class="space-y-4 mb-8">
+                <div>
+                    <label class="text-[10px] text-zinc-500 block mb-1 uppercase">Calibre matériel (Ampères)</label>
+                    <select id="sel-calibre" class="w-full bg-black p-3 rounded-xl border border-zinc-800 outline-none text-sm text-white">
+                        <option value="20">20A - Usage Domestique</option>
+                        <option value="50">50A - Usage Industriel</option>
+                        <option value="100">100A - Haute Puissance</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="text-[10px] text-zinc-500 block mb-1 uppercase">Correction Tension (Ku)</label>
+                    <input type="number" id="coeff-u" value="1.00" step="0.01" class="w-full bg-black p-3 rounded-xl border border-zinc-800 text-center font-bold text-white">
+                </div>
+                <div>
+                    <label class="text-[10px] text-zinc-500 block mb-1 uppercase">Correction Courant (Ki)</label>
+                    <input type="number" id="coeff-i" value="1.00" step="0.01" class="w-full bg-black p-3 rounded-xl border border-zinc-800 text-center font-bold text-white">
+                </div>
+            </div>
+            <button onclick="saveSettings()" class="w-full bg-blue-600 py-4 rounded-2xl font-black mb-3 shadow-lg shadow-blue-900/20">APPLIQUER</button>
+            <button onclick="closeModal()" class="text-zinc-500 text-xs font-bold uppercase tracking-widest">Annuler</button>
+        </div>
+    </div>
+
+    <div class="device-body w-full max-w-sm p-6 relative">
+        <div class="text-center mb-4">
+            <h1 class="text-zinc-500 font-black text-xs uppercase tracking-widest">Lemonfa Afussi</h1>
+            <p class="text-[8px] text-blue-500 font-bold italic uppercase tracking-tighter">Twin Expert System 2026</p>
+        </div>
+
+        <div class="lcd-screen p-4 rounded-lg mb-8 h-64 flex flex-col shadow-inner">
+            <div class="flex justify-between text-[9px] mb-2 font-bold opacity-60">
+                <span class="flex items-center gap-1"><span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span> LIVE MONITOR</span>
+                <span id="system-time">00:00:00</span>
+            </div>
+            
+            <div class="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] font-bold mb-2">
+                <div>L1: <span id="v1" class="neon-text">0</span>V | <span id="a1">0.0</span>A</div>
+                <div>L2: <span id="v2" class="neon-text">0</span>V | <span id="a2">0.0</span>A</div>
+                <div>L3: <span id="v3" class="neon-text">0</span>V | <span id="a3">0.0</span>A</div>
+                <div class="text-blue-400 text-[9px]">Ku: <span id="val-ku">1.00</span> | Ki: <span id="val-ki">1.00</span></div>
+            </div>
+
+            <div class="flex-grow mt-2 relative border-t border-green-900/30 pt-2">
+                <canvas id="oscillo"></canvas>
+            </div>
+
+            <div class="mt-2 text-center border-t border-green-900/40 pt-2">
+                <span id="ptot" class="text-3xl font-black tracking-tighter neon-text">0.00</span> <span class="text-sm font-bold">kW</span>
+            </div>
+        </div>
+
+        <div class="flex justify-around mb-12">
+            <div class="text-center"><div id="j-l1" class="borne borne-l1 mx-auto text-red-500"></div><p class="text-[9px] mt-2 font-black text-zinc-500 uppercase">L1</p></div>
+            <div class="text-center"><div id="j-l2" class="borne borne-l2 mx-auto text-orange-500"></div><p class="text-[9px] mt-2 font-black text-zinc-500 uppercase">L2</p></div>
+            <div class="text-center"><div id="j-l3" class="borne borne-l3 mx-auto text-blue-500"></div><p class="text-[9px] mt-2 font-black text-zinc-500 uppercase">L3</p></div>
+            <div class="text-center"><div id="j-n" class="borne borne-n mx-auto text-zinc-500"></div><p class="text-[9px] mt-2 font-black text-zinc-500 uppercase">N</p></div>
+        </div>
+
+        <div class="grid grid-cols-3 gap-6 justify-items-center mb-4">
+            <div class="text-center">
+                <button id="btn-mode" onclick="press('mode')" class="btn-physique text-[10px]">MODE</button>
+                <p class="text-[8px] mt-2 font-bold text-zinc-600">FONCTION</p>
+            </div>
+            <div class="text-center">
+                <button id="btn-calib" onclick="press('calib')" class="btn-physique text-[10px]">CALIB</button>
+                <p class="text-[8px] mt-2 font-bold text-zinc-600">RÉGLAGE</p>
+            </div>
+            <div class="text-center">
+                <button id="btn-reset" onclick="press('reset')" class="btn-physique text-[10px] text-red-800">RESET</button>
+                <p class="text-[8px] mt-2 font-bold text-red-900/50">REBOOT</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let db;
+        let chart;
+        const PIN_SÉCURITÉ = "2026";
+        let lastStates = { v1: 0, v2: 0, v3: 0 }; // Pour détecter le début de câblage
+
+        function speak(t) { 
+            window.speechSynthesis.cancel(); 
+            let m = new SpeechSynthesisUtterance(t); 
+            m.lang = 'fr-FR'; m.rate = 1; 
+            window.speechSynthesis.speak(m); 
+        }
+
+        window.onload = () => {
+            initChart();
+            const url = localStorage.getItem('fb_url') || prompt("Entrez l'URL Firebase :");
+            if(url) {
+                localStorage.setItem('fb_url', url);
+                firebase.initializeApp({ databaseURL: url });
+                db = firebase.database();
+                listen();
+            }
+            setInterval(() => { document.getElementById('system-time').innerText = new Date().toLocaleTimeString(); }, 1000);
+            speak("Initialisation. Jumeau numérique Lemonfa prêt.");
+        };
+
+        function initChart() {
+            const ctx = document.getElementById('oscillo').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: Array(30).fill(''),
+                    datasets: [
+                        { label: 'L1', borderColor: '#ef4444', data: Array(30).fill(0), borderWidth: 2, pointRadius: 0, tension: 0.4 },
+                        { label: 'L2', borderColor: '#f59e0b', data: Array(30).fill(0), borderWidth: 2, pointRadius: 0, tension: 0.4 },
+                        { label: 'L3', borderColor: '#3b82f6', data: Array(30).fill(0), borderWidth: 2, pointRadius: 0, tension: 0.4 }
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { x: { display: false }, y: { display: false, min: -150, max: 150 } },
+                    animation: { duration: 0 }
+                }
+            });
+        }
+
+        function listen() {
+            db.ref('wattmetre_physique').on('value', (s) => {
+                const d = s.val(); if(!d) return;
+                
+                // --- LOGIQUE DE SÉCURITÉ IA (Câblage en cours) ---
+                if (lastStates.v1 === 0 && d.l1.v > 10) speak("Attention ! Tension détectée sur la Phase 1. Prenez vos précautions de sécurité pour le câblage.");
+                if (lastStates.v2 === 0 && d.l2.v > 10) speak("Prudence ! La Phase 2 est maintenant sous tension. Risque d'électrocution présent.");
+                if (lastStates.v3 === 0 && d.l3.v > 10) speak("Alerte de sécurité ! Phase 3 active. Écartez-vous des bornes dénudées.");
+                
+                lastStates.v1 = d.l1.v; lastStates.v2 = d.l2.v; lastStates.v3 = d.l3.v;
+
+                // Mise à jour Affichage
+                document.getElementById('v1').innerText = d.l1.v;
+                document.getElementById('a1').innerText = d.l1.a.toFixed(1);
+                document.getElementById('v2').innerText = d.l2.v;
+                document.getElementById('a2').innerText = d.l2.a.toFixed(1);
+                document.getElementById('v3').innerText = d.l3.v;
+                document.getElementById('a3').innerText = d.l3.a.toFixed(1);
+                document.getElementById('ptot').innerText = ((d.l1.w + d.l2.w + d.l3.w)/1000).toFixed(2);
+                
+                if(d.config) {
+                    document.getElementById('val-ku').innerText = d.config.ku;
+                    document.getElementById('val-ki').innerText = d.config.ki;
+                }
+
+                // Miroir Boutons
+                document.getElementById('btn-mode').classList.toggle('btn-pressed', d.btn_mode_state);
+                document.getElementById('btn-calib').classList.toggle('btn-pressed', d.btn_calib_state);
+                document.getElementById('btn-reset').classList.toggle('btn-pressed', d.btn_reset_state);
+
+                // Bornes
+                document.getElementById('j-l1').classList.toggle('cordon-active', d.l1.v > 30);
+                document.getElementById('j-l2').classList.toggle('cordon-active', d.l2.v > 30);
+                document.getElementById('j-l3').classList.toggle('cordon-active', d.l3.v > 30);
+                document.getElementById('j-n').classList.toggle('cordon-active', d.l1.v > 10 || d.l2.v > 10);
+
+                // Oscilloscope
+                const time = Date.now() / 150;
+                chart.data.datasets[0].data.push(Math.sin(time) * (d.l1.v / 2));
+                chart.data.datasets[1].data.push(Math.sin(time + 2.09) * (d.l2.v / 2));
+                chart.data.datasets[2].data.push(Math.sin(time + 4.18) * (d.l3.v / 2));
+                chart.data.datasets.forEach(ds => ds.data.shift());
+                chart.update('none');
+
+                if(d.l1.v > 255) speak("Surtension critique sur le réseau.");
+            });
+        }
+
+        function press(type) {
+            if(type === 'calib') {
+                if(prompt("SÉCURITÉ CRÉATEUR - CODE PIN :") === PIN_SÉCURITÉ) {
+                    document.getElementById('calibModal').style.display = 'flex';
+                    speak("Accès autorisé. Menu de calibrage expert.");
+                } else { speak("Accès refusé. PIN incorrect."); }
+            } else {
+                db.ref('wattmetre_physique/remote_cmd').set(type);
+                document.getElementById('btn-'+type).classList.add('btn-pressed');
+                setTimeout(() => {
+                    db.ref('wattmetre_physique/remote_cmd').set('none');
+                    document.getElementById('btn-'+type).classList.remove('btn-pressed');
+                }, 500);
+            }
+        }
+
+        function saveSettings() {
+            const config = {
+                calibre: document.getElementById('sel-calibre').value,
+                ku: document.getElementById('coeff-u').value,
+                ki: document.getElementById('coeff-i').value,
+                updated_at: Date.now()
+            };
+            db.ref('wattmetre_physique/config').set(config);
+            speak("Coefficients mis à jour avec succès.");
+            closeModal();
+        }
+
+        function closeModal() { document.getElementById('calibModal').style.display = 'none'; }
+    </script>
+</body>
+</html>
